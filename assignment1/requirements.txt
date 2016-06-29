@@ -1,0 +1,5 @@
+# matplotlib must be installed on the system
+numpy==1.11.1
+scipy==0.17.1
+six==1.10.0
+sklearn==0.0

@@ -1,0 +1,5 @@
+*.tar.gz
+notMNIST_large
+notMNIST_small
+*.pickle
+
