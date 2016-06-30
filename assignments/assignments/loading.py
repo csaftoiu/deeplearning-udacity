@@ -1,4 +1,5 @@
 import os
+import os.path as P
 import sys
 import tarfile
 
@@ -10,6 +11,7 @@ from six.moves.urllib.request import urlretrieve
 
 num_classes = 10
 image_size = 28      # Pixel width and height.
+data_dir = "data"
 
 
 def letter_for(label):
@@ -27,12 +29,13 @@ def sizeof_fmt(num, suffix='B'):
 
 def maybe_download(filename, expected_bytes, force=False):
     """Download a file if not present, and make sure it's the right size."""
-    if force or not os.path.exists(filename):
+    filepath = P.join(data_dir, filename)
+    if force or not P.exists(filepath):
         print("Downloading %s, %s bytes..." % (filename, sizeof_fmt(expected_bytes)))
         url = 'http://commondatastorage.googleapis.com/books1000/'
-        filename, _ = urlretrieve(url + filename, filename)
+        filename, _ = urlretrieve(url + filename, filepath)
 
-    statinfo = os.stat(filename)
+    statinfo = os.stat(filepath)
     if statinfo.st_size == expected_bytes:
         print('Found and verified', filename)
     else:
@@ -42,25 +45,26 @@ def maybe_download(filename, expected_bytes, force=False):
 
 
 def maybe_extract(filename, force=False):
-    root = os.path.splitext(os.path.splitext(filename)[0])[0]  # remove .tar.gz
-    if os.path.isdir(root) and not force:
+    filepath = P.join(data_dir, filename)
+    root = P.splitext(P.splitext(filepath)[0])[0]  # remove .tar.gz
+    if P.isdir(root) and not force:
         # You may override by setting force=True.
         print('%s already present - Skipping extraction of %s.' % (root, filename))
     else:
         print('Extracting data for %s. This may take a while. Please wait.' % root)
-        tar = tarfile.open(filename)
+        tar = tarfile.open(filepath)
         sys.stdout.flush()
         tar.extractall()
         tar.close()
     data_folders = [
-        os.path.join(root, d) for d in sorted(os.listdir(root))
-        if os.path.isdir(os.path.join(root, d))]
+        P.join(root, d) for d in sorted(os.listdir(root))
+        if P.isdir(P.join(root, d))]
     return data_folders
 
 
 def load_letter(folder, min_num_images, image_size):
     """Load the data for a single letter label."""
-    pixel_depth = 25
+    pixel_depth = 255.0
 
     image_files = os.listdir(folder)
     dataset = np.ndarray(shape=(len(image_files), image_size, image_size),
@@ -68,10 +72,10 @@ def load_letter(folder, min_num_images, image_size):
     image_index = 0
     print(folder)
     for image in os.listdir(folder):
-        image_file = os.path.join(folder, image)
+        image_file = P.join(folder, image)
         try:
             image_data = (ndimage.imread(image_file).astype(float) -
-                          pixel_depth / 2) / pixel_depth
+                          pixel_depth / 2) / (pixel_depth / 2)
             if image_data.shape != (image_size, image_size):
                 raise Exception('Unexpected image shape: %s' % str(image_data.shape))
             dataset[image_index, :, :] = image_data
@@ -97,7 +101,7 @@ def maybe_pickle(data_folders, min_num_images_per_class,
     for folder in data_folders:
         set_filename = folder + '.pickle'
         dataset_names.append(set_filename)
-        if os.path.exists(set_filename) and not force:
+        if P.exists(set_filename) and not force:
             # You may override by setting force=True.
             print('%s already present - Skipping pickling.' % set_filename)
         else:

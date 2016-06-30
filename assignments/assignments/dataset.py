@@ -2,11 +2,12 @@ from __future__ import print_function
 
 from itertools import combinations
 import os
+import os.path as P
 
 import numpy as np
 from six.moves import cPickle as pickle
 
-from .loading import image_size
+from .loading import image_size, data_dir
 
 
 def make_arrays(nb_rows, img_size):
@@ -73,13 +74,13 @@ def merge_datasets(pickle_files, image_size, train_size, valid_size):
 
 def get_training_data(train_datasets, test_datasets,
                       train_size, valid_size, test_size,
-                      force_regen=False):
+                      force_regen=False, store_pickle=True):
     """Create and return training, validation, and testing datasets.
     If force_regen is False, it will generate the dataset, even if a pickled
     version is available."""
-    TRAINING_DATA_FILENAME = 'training_data-%d-%d-%d.pickle' % (
+    TRAINING_DATA_FILENAME = P.join(data_dir, 'training_data-%d-%d-%d.pickle' % (
         train_size, valid_size, test_size,
-    )
+    ))
     if not force_regen and os.path.exists(TRAINING_DATA_FILENAME):
         print("Loading training data from pickle...")
         with open(TRAINING_DATA_FILENAME, 'rb') as f:
@@ -109,8 +110,9 @@ def get_training_data(train_datasets, test_datasets,
         },
     }
 
-    with open(TRAINING_DATA_FILENAME, 'wb') as f:
-        pickle.dump(result, f, pickle.HIGHEST_PROTOCOL)
+    if store_pickle:
+        with open(TRAINING_DATA_FILENAME, 'wb') as f:
+            pickle.dump(result, f, pickle.HIGHEST_PROTOCOL)
 
     return result
 
@@ -199,3 +201,17 @@ def visually_check_data(training_data, n=5):
             print("Label is %s" % ("ABCDEFGHIJ"[data['labels'][i]]))
             plt.imshow(data['data'][i])
             plt.show()
+
+
+def flatten_image_arrays(imarrays):
+    """Given a 3d array of images (array of 2-dim arrays), flatten it
+    to a 2d array (array of 1-dim arrays)"""
+    return imarrays.reshape(imarrays.shape[0], -1)
+
+
+def flatten_training_data(training_data):
+    """Flatten the training data."""
+    result = shallow_copy_training_data(training_data)
+    for which, data in result.items():
+        data['data'] = flatten_image_arrays(data['data'])
+    return result
