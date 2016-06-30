@@ -177,4 +177,23 @@ def sanitize_training_data(training_data):
     print("Removing overlaps between valid and test...")
     training_data = remove_overlaps(training_data, 'valid', 'test')
 
+    # check no more overlaps
+    assert all(overlaps == 0 for overlaps in measure_overlap(training_data).values())
+
     return training_data
+
+
+def visually_check_data(training_data, n=5):
+    """Use matplotlib to show the letter & corresponding label for `n` random instances,
+    to verify the data still matches."""
+    import matplotlib.pyplot as plt
+    import random
+
+    for name, data in training_data.items():
+        print("Checking %s..." % name)
+        for which in xrange(n):
+            # show last image for first run, otherwise a random one
+            i = random.randint(0, len(data['data']) - 1) if which > 0 else len(data['data']) - 1
+            print("Label is %s" % ("ABCDEFGHIJ"[data['labels'][i]]))
+            plt.imshow(data['data'][i])
+            plt.show()

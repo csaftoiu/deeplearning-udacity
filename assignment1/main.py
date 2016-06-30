@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from assignment1.loading import load_datasets
-from assignment1.datasets import get_training_data, measure_overlap, sanitize_training_data
+from assignment1.dataset import get_training_data, sanitize_training_data, visually_check_data
 
 
 
@@ -22,7 +22,7 @@ def main():
         train_datasets, test_datasets,
         train_size=200000, valid_size=10000, test_size=10000)
 
-    sanitized_data = sanitize_training_data(training_data)
+    # sanitized_data = sanitize_training_data(training_data)
 
 
 if __name__ == "__main__":
