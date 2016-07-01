@@ -212,5 +212,120 @@ def main_sgd():
         ))
 
 
+def main_relunet():
+    # initialize
+    np.random.seed(133)
+
+    training_sets = load_training_sets()
+
+    # stochastic gradient descent
+    batch_size = 128
+    initial_learning_rate = 0.5
+    num_relus = (dataset.image_size ** 2)
+
+    graph = tf.Graph()
+    with graph.as_default():
+        train = {
+            'data': tf.placeholder(tf.float32, shape=(batch_size, dataset.image_size ** 2)),
+            'labels': tf.placeholder(tf.float32, shape=(batch_size, dataset.num_classes)),
+        }
+        batch_offset = tf.random_uniform(
+            (1,), dtype=tf.int32,
+            minval=0, maxval=len(training_sets['test']['labels']) - batch_size)
+
+        valid = tf_dataset(training_sets['valid'])
+        test = tf_dataset(training_sets['test'])
+
+        # initialize training parameters
+        # weights and biases 1 go into relus...
+        weights1 = tf.Variable(
+            tf.truncated_normal([dataset.image_size ** 2, num_relus])
+        )
+        biases1 = tf.Variable(tf.zeros([num_relus]))
+        # weights and biases 2 go into outputs
+        weights2 = tf.Variable(
+            tf.truncated_normal([num_relus, dataset.num_classes])
+        )
+        biases2 = tf.Variable(tf.zeros([dataset.num_classes]))
+
+        # the computation we are performing
+        def build_pipeline(data):
+            # X --> *W1 --> +b1 --> relu --> *W2 --> +b2 --> softmax etc...
+            pipeline = data
+            pipeline = tf.matmul(pipeline, weights1)
+            pipeline += biases1
+            pipeline = tf.nn.relu(pipeline)
+            pipeline = tf.matmul(pipeline, weights2)
+            pipeline += biases2
+
+            return pipeline
+
+        train_logits = build_pipeline(train['data'])
+        valid_logits = build_pipeline(valid['data'])
+        test_logits = build_pipeline(test['data'])
+
+        # predictions, so we can compare output
+        train_prediction = tf.nn.softmax(train_logits)
+        valid_prediction = tf.nn.softmax(valid_logits)
+        test_prediction = tf.nn.softmax(test_logits)
+
+        # the optimization
+        # loss function is the mean of the cross-entropy of (the softmax of the
+        # logits, the labels). This is built in exactly!
+        loss = tf.reduce_mean(
+            tf.nn.softmax_cross_entropy_with_logits(train_logits, train['labels'])
+        )
+
+        # learning rate
+        global_step = tf.Variable(0, trainable=False)
+        # learning_rate = tf.train.exponential_decay(
+        #     initial_learning_rate, global_step, 300, 0.96)
+        learning_rate = tf.constant(initial_learning_rate)
+
+        # optimizer - gradient descent, minimizing the loss function
+        optimizer = tf.train.GradientDescentOptimizer(learning_rate).minimize(loss, global_step=global_step)
+
+    # now that graph is created, run the session
+    with tf.Session(graph=graph) as session:
+        # initialize everything
+        tf.initialize_all_variables().run()
+
+        print("Initialized")
+
+        while True:  # for step in range(num_steps):
+            try:
+                step = global_step.eval()
+                offs = batch_offset.eval()[0]
+                batch = {
+                    'data': training_sets['train']['data'][offs:offs + batch_size, :],
+                    'labels': training_sets['train']['labels'][offs:offs + batch_size],
+                }
+
+                _, loss_val, predictions = session.run([optimizer, loss, train_prediction], feed_dict={
+                    train['data']: batch['data'],
+                    train['labels']: batch['labels'],
+                })
+
+                if step % 200 == 0:
+                    print("Global step: %d" % step)
+                    print("Learning rate: %f" % learning_rate.eval())
+                    print("Batch loss function: %f" % loss_val)
+
+                    print("Accuracy on batch data:   %.2f%%" % (
+                        accuracy(predictions, batch['labels']),
+                    ))
+                    # evaluate predictions and see their accuracy
+                    print("Accuracy on validation data: %.2f%%" % (
+                        accuracy(valid_prediction.eval(), training_sets['valid']['labels']),
+                    ))
+            except KeyboardInterrupt:
+                print("Stopping from keyboard interrupt.")
+                break
+
+        print('Test accuracy: %.2f%%' % (
+            accuracy(test_prediction.eval(), training_sets['test']['labels']),
+        ))
+
+
 if __name__ == "__main__":
-    main_sgd()
+    main_relunet()
