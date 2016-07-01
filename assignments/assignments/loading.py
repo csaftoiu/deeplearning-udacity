@@ -9,9 +9,7 @@ from six.moves import cPickle as pickle
 from six.moves.urllib.request import urlretrieve
 
 
-num_classes = 10
-image_size = 28      # Pixel width and height.
-data_dir = "data"
+DATA_DIR = "data"
 
 
 def letter_for(label):
@@ -29,7 +27,7 @@ def sizeof_fmt(num, suffix='B'):
 
 def maybe_download(filename, expected_bytes, force=False):
     """Download a file if not present, and make sure it's the right size."""
-    filepath = P.join(data_dir, filename)
+    filepath = P.join(DATA_DIR, filename)
     if force or not P.exists(filepath):
         print("Downloading %s, %s bytes..." % (filename, sizeof_fmt(expected_bytes)))
         url = 'http://commondatastorage.googleapis.com/books1000/'
@@ -45,7 +43,7 @@ def maybe_download(filename, expected_bytes, force=False):
 
 
 def maybe_extract(filename, force=False):
-    filepath = P.join(data_dir, filename)
+    filepath = P.join(DATA_DIR, filename)
     root = P.splitext(P.splitext(filepath)[0])[0]  # remove .tar.gz
     if P.isdir(root) and not force:
         # You may override by setting force=True.
@@ -118,6 +116,8 @@ def maybe_pickle(data_folders, min_num_images_per_class,
 
 def load_datasets():
     """Download, extract, and pickle the notMNIST datasets."""
+    from .dataset import num_classes, image_size
+
     train_filename = maybe_download('notMNIST_large.tar.gz', 247336696)
     test_filename = maybe_download('notMNIST_small.tar.gz', 8458043)
 

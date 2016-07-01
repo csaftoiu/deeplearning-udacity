@@ -7,7 +7,9 @@ import os.path as P
 import numpy as np
 from six.moves import cPickle as pickle
 
-from .loading import image_size, data_dir, num_classes
+
+image_size = 28
+num_classes = 10
 
 
 def make_arrays(nb_rows, img_size):
@@ -78,7 +80,9 @@ def get_training_sets(train_datasets, test_datasets,
     """Create and return training, validation, and testing datasets.
     If force_regen is False, it will generate the dataset, even if a pickled
     version is available."""
-    TRAINING_DATA_FILENAME = P.join(data_dir, 'training_data-%d-%d-%d.pickle' % (
+    from .loading import DATA_DIR
+
+    TRAINING_DATA_FILENAME = P.join(DATA_DIR, 'training_data-%d-%d-%d.pickle' % (
         train_size, valid_size, test_size,
     ))
     if not force_regen and os.path.exists(TRAINING_DATA_FILENAME):
@@ -237,3 +241,11 @@ def mapsets(f, datasets):
     for which, data in list(result.items()):
         result[which] = f(data)
     return result
+
+
+def subset(data, size):
+    """Get a subset of the dataset."""
+    return {
+        'data': data['data'][:size, :],
+        'labels': data['labels'][:size],
+    }
