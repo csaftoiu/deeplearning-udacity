@@ -2,17 +2,14 @@ from __future__ import print_function
 
 import random
 
-import matplotlib.pyplot as plt
 import numpy as np
+import tensorflow as tf
 
-from assignments.loading import load_datasets, letter_for
 from assignments import loading, dataset, classification
 
 
-def main():
-    # initialize
-    np.random.seed(133)
-
+def get_tf_sets():
+    """Get the training sets for use in tensorflow."""
     train_datasets, test_datasets = loading.load_datasets()
     training_sets = dataset.get_training_sets(
         train_datasets, test_datasets,
@@ -24,7 +21,16 @@ def main():
 
     for which, data in training_sets.items():
         print(which, data['data'].shape)
-        print(data['labels'][:50])
+        print(data['labels'][:5])
+
+    return training_sets
+
+
+def main():
+    # initialize
+    np.random.seed(133)
+
+    training_sets = get_tf_sets()
 
 
 if __name__ == "__main__":
