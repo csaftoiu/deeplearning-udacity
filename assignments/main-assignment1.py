@@ -5,19 +5,14 @@ import random
 import matplotlib.pyplot as plt
 import numpy as np
 
-from assignments.loading import load_datasets, letter_for
-from assignments.dataset import (
-    get_training_data, sanitize_training_data, visually_check_data,
-    measure_overlap, flatten_training_data
-)
-from assignments import classification
+from assignments import loading, dataset, classification
 
 
 def main():
     # initialize
     np.random.seed(133)
 
-    train_datasets, test_datasets = load_datasets()
+    train_datasets, test_datasets = loading.load_datasets()
 
     train_sizes = (
         # 50,
@@ -28,18 +23,20 @@ def main():
     )
 
     for train_size in train_sizes:
-        training_data = get_training_data(
+        training_sets = dataset.get_training_sets(
             train_datasets, test_datasets,
             train_size=train_size, valid_size=train_size, test_size=10000,
             store_pickle=True)
-        import pprint; pprint.pprint(measure_overlap(training_data))
-        training_data = sanitize_training_data(training_data)
-        training_data = flatten_training_data(training_data)
-        lr = classification.fit_sklearn_logisic_regression(training_data['train'])
+        import pprint; pprint.pprint(dataset.measure_overlap(training_sets))
+        training_sets = dataset.sanitize_sets(training_sets)
+        print(training_sets['train']['data'].shape)
+        training_sets = dataset.mapsets(dataset.flatten, training_sets)
+        print(training_sets['train']['data'].shape)
+        lr = classification.fit_sklearn_logisic_regression(training_sets['train'])
         # lr = classification.fit_sklearn_sgd(training_data['train'])
 
         print("Accuracy trained from %d samples on %d 'valid' samples is %.2f%%" % (
-            train_size, train_size // 20, classification.get_accuracy(lr, training_data['valid']) * 100,
+            train_size, train_size // 20, classification.get_accuracy(lr, training_sets['valid']) * 100,
         ))
 
         # # check some from test

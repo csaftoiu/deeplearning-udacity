@@ -7,7 +7,7 @@ import os.path as P
 import numpy as np
 from six.moves import cPickle as pickle
 
-from .loading import image_size, data_dir
+from .loading import image_size, data_dir, num_classes
 
 
 def make_arrays(nb_rows, img_size):
@@ -72,7 +72,7 @@ def merge_datasets(pickle_files, image_size, train_size, valid_size):
     return valid_dataset, valid_labels, train_dataset, train_labels
 
 
-def get_training_data(train_datasets, test_datasets,
+def get_training_sets(train_datasets, test_datasets,
                       train_size, valid_size, test_size,
                       force_regen=False, store_pickle=True):
     """Create and return training, validation, and testing datasets.
@@ -117,14 +117,14 @@ def get_training_data(train_datasets, test_datasets,
     return result
 
 
-def measure_overlap(training_data):
+def measure_overlap(training_sets):
     """Measure the overlap in the training data sets.
 
     Uses a hash function, so it's not 100% exact, but close enough.
 
     Return a dict of (setname, sename) to number of overlapping letters."""
     contained_letters = {}
-    for name, dataset in training_data.items():
+    for name, dataset in training_sets.items():
         for letter in dataset['data']:
             letter.flags.writeable = False
             contained_letters.setdefault(name, set()).add(hash(letter.data))
@@ -133,26 +133,26 @@ def measure_overlap(training_data):
             for a, b in combinations(contained_letters.keys(), 2)}
 
 
-def shallow_copy_training_data(training_data):
+def shallow_copy_sets(training_sets):
     """Return shallow copy of training data, where the numpy arrays are not
     copied, but the dicts are deep-copied."""
     result = {}
-    for name, d in training_data.items():
+    for name, d in training_sets.items():
         result[name] = dict(d)
     return result
 
 
-def remove_overlaps(training_data, keep_src, remove_src):
+def remove_overlaps(training_sets, keep_src, remove_src):
     """Given training data, return a new training data set where
     images from remove_src whose hash equals the hash of an image in keep_src
     have been removed."""
-    assert keep_src in training_data
-    assert remove_src in training_data
+    assert keep_src in training_sets
+    assert remove_src in training_sets
 
     contained_letters = {}
     hash_to_im = {}
     for name in [keep_src, remove_src]:
-        for i, letter in enumerate(training_data[name]['data']):
+        for i, letter in enumerate(training_sets[name]['data']):
             letter.flags.writeable = False
             h = hash(letter.data)
             contained_letters.setdefault(name, set()).add(h)
@@ -164,36 +164,36 @@ def remove_overlaps(training_data, keep_src, remove_src):
     rem_indices = [i for c in common for i in hash_to_im[remove_src][c]]
 
     # remove them from a sort-of shallow copy
-    training_data = shallow_copy_training_data(training_data)
-    training_data[remove_src]['data'] = np.delete(training_data[remove_src]['data'],
+    training_sets = shallow_copy_sets(training_sets)
+    training_sets[remove_src]['data'] = np.delete(training_sets[remove_src]['data'],
                                                   rem_indices, axis=0)
-    training_data[remove_src]['labels'] = np.delete(training_data[remove_src]['labels'],
-                                                  rem_indices, axis=0)
-    return training_data
+    training_sets[remove_src]['labels'] = np.delete(training_sets[remove_src]['labels'],
+                                                    rem_indices, axis=0)
+    return training_sets
 
 
-def sanitize_training_data(training_data):
-    """Sanitize the training data **in place** by removing overlaps."""
+def sanitize_sets(training_sets):
+    """Sanitize the datasets **in place** by removing overlaps."""
     print("Removing overlaps between train and valid...")
-    training_data = remove_overlaps(training_data, 'train', 'valid')
+    training_sets = remove_overlaps(training_sets, 'train', 'valid')
     print("Removing overlaps between train and test...")
-    training_data = remove_overlaps(training_data, 'train', 'test')
+    training_sets = remove_overlaps(training_sets, 'train', 'test')
     print("Removing overlaps between valid and test...")
-    training_data = remove_overlaps(training_data, 'valid', 'test')
+    training_sets = remove_overlaps(training_sets, 'valid', 'test')
 
     # check no more overlaps
-    assert all(overlaps == 0 for overlaps in measure_overlap(training_data).values())
+    assert all(overlaps == 0 for overlaps in measure_overlap(training_sets).values())
 
-    return training_data
+    return training_sets
 
 
-def visually_check_data(training_data, n=5):
+def visually_check(training_sets, n=5):
     """Use matplotlib to show the letter & corresponding label for `n` random instances,
     to verify the data still matches."""
     import matplotlib.pyplot as plt
     import random
 
-    for name, data in training_data.items():
+    for name, data in training_sets.items():
         print("Checking %s..." % name)
         for which in xrange(n):
             # show last image for first run, otherwise a random one
@@ -209,9 +209,31 @@ def flatten_image_arrays(imarrays):
     return imarrays.reshape(imarrays.shape[0], -1)
 
 
-def flatten_training_data(training_data):
-    """Flatten the training data."""
-    result = shallow_copy_training_data(training_data)
-    for which, data in result.items():
-        data['data'] = flatten_image_arrays(data['data'])
+def flatten(data):
+    """Flatten a dataset."""
+    result = dict(data)
+    result['data'] = flatten_image_arrays(result['data'])
+    return result
+
+
+def onehotify(data):
+    """Turn a dataset's labels into one-hot encodings."""
+    def proc_label(label):
+        res = np.zeros(num_classes)
+        res[label] = 1.
+        return res
+
+    result = dict(data)
+    # np.arange(10) gives [0, ..., 9]
+    # labels[:, None] turns [0, 3, 4, ...] into [[0], [3], [4], ...]
+    # == sets the correct one to one or something weird
+    result['labels'] = (np.arange(num_classes) == result['labels'][:, None]).astype('float32')
+    return result
+
+
+def mapsets(f, datasets):
+    """Apply a function to all the datasets."""
+    result = dict(datasets)
+    for which, data in list(result.items()):
+        result[which] = f(data)
     return result

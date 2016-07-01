@@ -14,17 +14,17 @@ def main():
     np.random.seed(133)
 
     train_datasets, test_datasets = loading.load_datasets()
-    training_data = dataset.get_training_data(
+    training_sets = dataset.get_training_sets(
         train_datasets, test_datasets,
         train_size=200000, valid_size=10000, test_size=10000,
         store_pickle=True)
 
-    training_data = dataset.flatten_training_data(training_data)
+    training_sets = dataset.mapsets(dataset.flatten, training_sets)
+    training_sets = dataset.mapsets(dataset.onehotify, training_sets)
 
-    for which, data in training_data.items():
+    for which, data in training_sets.items():
         print(which, data['data'].shape)
-
-    # training_data = sanitize_training_data(training_data)
+        print(data['labels'][:50])
 
 
 if __name__ == "__main__":

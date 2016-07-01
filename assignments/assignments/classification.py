@@ -1,7 +1,5 @@
 from sklearn.linear_model import LogisticRegression, SGDClassifier
 
-from .dataset import flatten_image_arrays
-
 
 def fit_sklearn_logisic_regression(data):
     """Given flattened `data` (a dict with `data` and `labels`), create and
