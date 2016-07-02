@@ -1,14 +1,13 @@
 from __future__ import print_function
 
 import math
-import random
+import os
+import time
 
 import numpy as np
 import tensorflow as tf
 
 from assignments import loading, dataset, classification
-
-from six.moves import range
 
 
 def load_training_sets():
@@ -48,49 +47,85 @@ def flatten_variable(v):
     return tf.reshape(v, (int(reduce(mul, v.get_shape())),))
 
 
-def main_relunet(summarize):
+# store parameters
+parameters = {
+    '84%_onelayer': {
+        'batch_size': 128,
+        'initial_learning_rate': 0.05,
+        'learning_rate_steps': 50.0,
+        'l2_loss_weight_scale': 0.0,
+        'relus': [dataset.image_size**2],
+        'step_print': 300,
+        'step_eval': 300,
+    },
+    '85.18%': {
+        'batch_size': 128,
+        'initial_learning_rate': 0.05,
+        'learning_rate_steps': 50.0,
+        'l2_loss_weight_scale': 0.01,
+        'relus': [dataset.image_size**2],
+        'step_print': 300,
+        'step_eval': 300,
+    },
+    'main': {
+        'batch_size': 128,
+        'initial_learning_rate': 0.05,
+        'learning_rate_steps': 50.0,
+        'l2_loss_weight_scale': 0.01,
+        'relus': [dataset.image_size**2],
+        'step_print': 300,
+        'step_eval': 300,
+    },
+}
+
+
+def main_relunet(summarize=True, **kwargs):
+    # set args for short
+    args = {}
+
+    def arg(name, default):
+        args[name] = kwargs.get(name, default)
+
     # initialize
     training_sets = load_training_sets()
 
     # batch size for stochastic gradient descent
-    batch_size = 128
+    arg('batch_size', 128)
+
+    # learning rate
+    arg('initial_learning_rate', 0.05)
+    arg('learning_rate_steps', 50.0)
+    arg('l2_loss_weight_scale', 0.0)
 
     # sizes of the hidden layers
-    # relus = [10]
-    relus = [dataset.image_size**2 * 2,
-             dataset.image_size**2 * 4,
-             dataset.image_size**2 * 2,
-             dataset.num_classes * 50]
-    # relus = [dataset.image_size**2, dataset.image_size**2]
-    # relus = [dataset.image_size**2 * 4,
-    #          dataset.image_size**2 * 3,
-    #          dataset.image_size**2 * 2,
-    #          dataset.image_size**2 * 1]
+    arg('relus', [
+        dataset.image_size**2,
+    ])
 
     # how often to print feedback
-    step_print = 50
-    step_eval = step_print * 10
+    arg('step_print', 300)
+    arg('step_eval', 300)
     # step_print
 
     graph = tf.Graph()
     with graph.as_default():
         # learning rate tweaking
-        initial_learning_rate = tf.constant(0.00000005, name='initial_learning_rate')
-        learning_rate_steps = tf.constant(300, name='learning_rate_steps')
+        initial_learning_rate = tf.constant(args['initial_learning_rate'], name='initial_learning_rate')
+        learning_rate_steps = tf.constant(args['learning_rate_steps'], name='learning_rate_steps')
 
         # loss penalization params
-        l2_loss_weight = tf.constant(0.005, name='loss_weight_scale')
+        l2_loss_weight = tf.constant(args['l2_loss_weight_scale'], name='loss_weight_scale')
 
         with tf.name_scope("training_data"):
             train = {
-                'data': tf.placeholder(tf.float32, shape=(batch_size, dataset.image_size ** 2),
+                'data': tf.placeholder(tf.float32, shape=(args['batch_size'], dataset.image_size ** 2),
                                        name='batch_input'),
-                'labels': tf.placeholder(tf.float32, shape=(batch_size, dataset.num_classes),
+                'labels': tf.placeholder(tf.float32, shape=(args['batch_size'], dataset.num_classes),
                                          name='batch_labels'),
             }
             batch_offset = tf.random_uniform(
                 (1,), dtype=tf.int32,
-                minval=0, maxval=len(training_sets['test']['labels']) - batch_size,
+                minval=0, maxval=len(training_sets['test']['labels']) - args['batch_size'],
                 name='batch_offset')
 
         with tf.name_scope("validation_data"):
@@ -106,7 +141,7 @@ def main_relunet(summarize):
         def make_bias(to, name=None):
             return tf.Variable(tf.truncated_normal([to], stddev=0.5), name=name)
 
-        layer_sizes = [dataset.image_size**2] + relus + [dataset.num_classes]
+        layer_sizes = [dataset.image_size**2] + args['relus'] + [dataset.num_classes]
         with tf.name_scope("parameters"):
             with tf.name_scope("weights"):
                 weights = [make_weight(layer_sizes[i], layer_sizes[i+1], name="weights_%d" % i)
@@ -152,8 +187,8 @@ def main_relunet(summarize):
 
         with tf.name_scope("accuracy_variables"):
             # inserted via python code
-            batch_accuracy = tf.Variable(0.0, name='batch_accuracy')
-            valid_accuracy = tf.Variable(0.0, name='valid_accuracy')
+            batch_accuracy = tf.Variable(0.0, trainable=False, name='batch_accuracy')
+            valid_accuracy = tf.Variable(0.0, trainable=False, name='valid_accuracy')
             tf.scalar_summary('accuracy/batch', batch_accuracy)
             tf.scalar_summary('accuracy/valid', valid_accuracy)
 
@@ -168,15 +203,20 @@ def main_relunet(summarize):
                 )
                 tf.scalar_summary('loss/main', loss_main)
 
-
             with tf.name_scope("loss_weights"):
-                # calculate l2 loss as the concatenation of all of our
-                # trainable parameters
-                l2_loss = l2_loss_weight * tf.nn.l2_loss(tf.concat(
-                    0,
-                    map(flatten_variable, weights) + map(flatten_variable, biases)
-                ), name='loss_weights')
-                tf.scalar_summary('loss/weights', l2_loss)
+                # calculate l2 loss as the sum of losses of all weights and biases
+                l2_loss_unweighted = tf.add_n([
+                    tf.nn.l2_loss(w) for w in weights
+                ] + [
+                    tf.nn.l2_loss(b) for b in biases
+                ])
+                # l2_loss_unweighted = tf.nn.l2_loss(tf.concat(
+                #     0,
+                #     map(flatten_variable, weights) + map(flatten_variable, biases)
+                # ), name='loss_weights')
+                tf.scalar_summary('loss/weights_unscaled', l2_loss_unweighted)
+                l2_loss = l2_loss_weight * l2_loss_unweighted
+                tf.scalar_summary('loss/weights_scaled', l2_loss)
 
             loss = tf.add(loss_main, l2_loss, name='loss')
             tf.scalar_summary('loss/total', loss)
@@ -196,7 +236,7 @@ def main_relunet(summarize):
             optimizer = tf.train.GradientDescentOptimizer(learning_rate).minimize(loss, global_step=global_step)
 
         summaries = tf.merge_all_summaries()
-        writer = tf.train.SummaryWriter('logs/', graph=graph)
+        writer = tf.train.SummaryWriter(os.path.join('logs', str(time.time())), graph=graph)
 
     # now that graph is created, run the session
     last_valid = 0
@@ -211,8 +251,8 @@ def main_relunet(summarize):
                 step = global_step.eval()
                 offs = batch_offset.eval()[0]
                 batch = {
-                    'data': training_sets['train']['data'][offs:offs + batch_size, :],
-                    'labels': training_sets['train']['labels'][offs:offs + batch_size],
+                    'data': training_sets['train']['data'][offs:offs + args['batch_size'], :],
+                    'labels': training_sets['train']['labels'][offs:offs + args['batch_size']],
                 }
 
                 summary, _, loss_val, predictions = session.run(
@@ -223,7 +263,7 @@ def main_relunet(summarize):
                     },
                 )
 
-                if step % step_print == 0:
+                if step % args['step_print'] == 0:
                     _batch_accuracy = accuracy(predictions, batch['labels'])
                     batch_accuracy.assign(_batch_accuracy).op.run()
 
@@ -236,7 +276,9 @@ def main_relunet(summarize):
                         _batch_accuracy,
                     ))
 
-                if step % step_eval == 0:
+                    print("Sample weights:\n%s" % (weights[0].eval()))
+
+                if step % args['step_eval'] == 0:
                     # evaluate predictions and see their accuracy
                     _valid_accuracy = accuracy(valid_prediction.eval(), training_sets['valid']['labels'])
                     valid_accuracy.assign(_valid_accuracy).op.run()
@@ -259,4 +301,4 @@ def main_relunet(summarize):
 
 
 if __name__ == "__main__":
-    main_relunet(summarize=True)
+    main_relunet(summarize=True, **parameters['main'])
