@@ -67,7 +67,7 @@ parameters = {
         'step_print': 300,
         'step_eval': 300,
     },
-    'main': {
+    '89.91%': {
         'batch_size': 128,
         'initial_learning_rate': 0.05,
         'learning_rate_steps': 50.0,
@@ -75,6 +75,27 @@ parameters = {
         'relus': [dataset.image_size**2],
         'step_print': 300,
         'step_eval': 300,
+        'use_dropout': True,
+    },
+    '90.62%': {
+        'batch_size': 128,
+        'initial_learning_rate': 0.05,
+        'learning_rate_steps': 50.0,
+        'l2_loss_weight_scale': 0.01,
+        'relus': [dataset.image_size**2 * 4],
+        'step_print': 300,
+        'step_eval': 300,
+        'use_dropout': True,
+    },
+    'main': {
+        'batch_size': 128,
+        'initial_learning_rate': 0.05,
+        'learning_rate_steps': 50.0,
+        'l2_loss_weight_scale': 0.01,
+        'relus': [dataset.image_size**2 * 4],
+        'step_print': 300,
+        'step_eval': 300,
+        'use_dropout': True,
     },
 }
 
@@ -101,6 +122,7 @@ def main_relunet(summarize=True, **kwargs):
     arg('relus', [
         dataset.image_size**2,
     ])
+    arg('use_dropout', True)
 
     # how often to print feedback
     arg('step_print', 300)
@@ -156,7 +178,7 @@ def main_relunet(summarize=True, **kwargs):
                 #     tf.histogram_summary('biases_%d' % i, b)
 
         # pipeline to get a logit
-        def build_logit_pipeline(data):
+        def build_logit_pipeline(data, include_dropout):
             # X --> *W1 --> +b1 --> relu --> *W2 --> +b2 ... --> softmax etc...
             pipeline = data
 
@@ -170,19 +192,21 @@ def main_relunet(summarize=True, **kwargs):
                     # insert relu after every one before the last
                     with tf.name_scope("relu%d" % i):
                         pipeline = tf.nn.relu(pipeline)
+                        if include_dropout and args['use_dropout']:
+                            pipeline = tf.nn.dropout(pipeline, 0.5, name='dropout')
 
             return pipeline
 
         with tf.name_scope("training_pipeline"):
-            train_logits = build_logit_pipeline(train['data'])
+            train_logits = build_logit_pipeline(train['data'], include_dropout=True)
             train_prediction = tf.nn.softmax(train_logits, name='train_predictions')
 
         with tf.name_scope("validation_pipeline"):
-            valid_logits = build_logit_pipeline(valid['data'])
+            valid_logits = build_logit_pipeline(valid['data'], include_dropout=False)
             valid_prediction = tf.nn.softmax(valid_logits, name='valid_predictions')
 
         with tf.name_scope("testing_pipeline"):
-            test_logits = build_logit_pipeline(test['data'])
+            test_logits = build_logit_pipeline(test['data'], include_dropout=False)
             test_prediction = tf.nn.softmax(test_logits, name='test_predictions')
 
         with tf.name_scope("accuracy_variables"):
@@ -275,8 +299,6 @@ def main_relunet(summarize=True, **kwargs):
                     print("Accuracy on batch data:   %.2f%%" % (
                         _batch_accuracy,
                     ))
-
-                    print("Sample weights:\n%s" % (weights[0].eval()))
 
                 if step % args['step_eval'] == 0:
                     # evaluate predictions and see their accuracy
