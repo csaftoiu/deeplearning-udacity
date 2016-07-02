@@ -212,80 +212,104 @@ def main_sgd():
         ))
 
 
-def main_relunet():
+def main_relunet(summarize):
     # initialize
-    np.random.seed(133)
-
     training_sets = load_training_sets()
 
     # stochastic gradient descent
     batch_size = 128
-    initial_learning_rate = 0.5
+    initial_learning_rate = 0.75
+    learning_rate_steps = 200
     num_relus = (dataset.image_size ** 2)
 
     graph = tf.Graph()
     with graph.as_default():
-        train = {
-            'data': tf.placeholder(tf.float32, shape=(batch_size, dataset.image_size ** 2)),
-            'labels': tf.placeholder(tf.float32, shape=(batch_size, dataset.num_classes)),
-        }
-        batch_offset = tf.random_uniform(
-            (1,), dtype=tf.int32,
-            minval=0, maxval=len(training_sets['test']['labels']) - batch_size)
+        with tf.name_scope("training_data"):
+            train = {
+                'data': tf.placeholder(tf.float32, shape=(batch_size, dataset.image_size ** 2)),
+                'labels': tf.placeholder(tf.float32, shape=(batch_size, dataset.num_classes)),
+            }
+            batch_offset = tf.random_uniform(
+                (1,), dtype=tf.int32,
+                minval=0, maxval=len(training_sets['test']['labels']) - batch_size)
 
-        valid = tf_dataset(training_sets['valid'])
-        test = tf_dataset(training_sets['test'])
+        with tf.name_scope("validation_data"):
+            valid = tf_dataset(training_sets['valid'])
 
-        # initialize training parameters
-        # weights and biases 1 go into relus...
-        weights1 = tf.Variable(
-            tf.truncated_normal([dataset.image_size ** 2, num_relus])
-        )
-        biases1 = tf.Variable(tf.zeros([num_relus]))
-        # weights and biases 2 go into outputs
-        weights2 = tf.Variable(
-            tf.truncated_normal([num_relus, dataset.num_classes])
-        )
-        biases2 = tf.Variable(tf.zeros([dataset.num_classes]))
+        with tf.name_scope("testing_data"):
+            test = tf_dataset(training_sets['test'])
 
-        # the computation we are performing
-        def build_pipeline(data):
-            # X --> *W1 --> +b1 --> relu --> *W2 --> +b2 --> softmax etc...
+        # create & initialize training parameters
+        def make_weight(from_, to):
+            return tf.Variable(tf.truncated_normal([from_, to]))
+
+        def make_bias(to):
+            return tf.Variable(tf.zeros(to))
+
+        with tf.name_scope("parameters"):
+            with tf.name_scope("weights"):
+                weights1 = make_weight(dataset.image_size**2, num_relus)
+                weights2 = make_weight(num_relus, dataset.num_classes)
+            with tf.name_scope("biases"):
+                biases1 = make_bias(num_relus)
+                biases2 = make_bias(dataset.num_classes)
+
+        # pipeline to get a logit
+        def build_logit_pipeline(data):
+            # X --> *W1 --> +b1 --> relu --> *W2 --> +b2 ... --> softmax etc...
             pipeline = data
-            pipeline = tf.matmul(pipeline, weights1)
-            pipeline += biases1
-            pipeline = tf.nn.relu(pipeline)
-            pipeline = tf.matmul(pipeline, weights2)
-            pipeline += biases2
+
+            with tf.name_scope("linear1"):
+                pipeline = tf.matmul(pipeline, weights1)
+                pipeline = pipeline + biases1
+
+            with tf.name_scope("relu"):
+                pipeline = tf.nn.relu(pipeline)
+
+            with tf.name_scope("linear2"):
+                pipeline = tf.matmul(pipeline, weights2)
+                pipeline = pipeline + biases2
 
             return pipeline
 
-        train_logits = build_pipeline(train['data'])
-        valid_logits = build_pipeline(valid['data'])
-        test_logits = build_pipeline(test['data'])
+        with tf.name_scope("training_pipeline"):
+            train_logits = build_logit_pipeline(train['data'])
+            train_prediction = tf.nn.softmax(train_logits)
 
-        # predictions, so we can compare output
-        train_prediction = tf.nn.softmax(train_logits)
-        valid_prediction = tf.nn.softmax(valid_logits)
-        test_prediction = tf.nn.softmax(test_logits)
+        with tf.name_scope("validation_pipeline"):
+            valid_logits = build_logit_pipeline(valid['data'])
+            valid_prediction = tf.nn.softmax(valid_logits)
+
+        with tf.name_scope("testing_pipeline"):
+            test_logits = build_logit_pipeline(test['data'])
+            test_prediction = tf.nn.softmax(test_logits)
 
         # the optimization
         # loss function is the mean of the cross-entropy of (the softmax of the
         # logits, the labels). This is built in exactly!
-        loss = tf.reduce_mean(
-            tf.nn.softmax_cross_entropy_with_logits(train_logits, train['labels'])
-        )
+        with tf.name_scope("loss"):
+            loss = tf.reduce_mean(
+                tf.nn.softmax_cross_entropy_with_logits(train_logits, train['labels'])
+            )
+            tf.scalar_summary('loss', loss)
 
         # learning rate
-        global_step = tf.Variable(0, trainable=False)
-        # learning_rate = tf.train.exponential_decay(
-        #     initial_learning_rate, global_step, 300, 0.96)
-        learning_rate = tf.constant(initial_learning_rate)
+        with tf.name_scope("learning_rate"):
+            global_step = tf.Variable(0, trainable=False)
+            learning_rate = tf.train.exponential_decay(
+                initial_learning_rate, global_step, learning_rate_steps, 0.96)
+            # learning_rate = tf.constant(initial_learning_rate)
+            tf.scalar_summary('learning_rate', learning_rate)
 
         # optimizer - gradient descent, minimizing the loss function
-        optimizer = tf.train.GradientDescentOptimizer(learning_rate).minimize(loss, global_step=global_step)
+        with tf.name_scope("optimizer"):
+            optimizer = tf.train.GradientDescentOptimizer(learning_rate).minimize(loss, global_step=global_step)
+
+        summaries = tf.merge_all_summaries()
+        writer = tf.train.SummaryWriter('logs/', graph=graph)
 
     # now that graph is created, run the session
+
     with tf.Session(graph=graph) as session:
         # initialize everything
         tf.initialize_all_variables().run()
@@ -301,10 +325,16 @@ def main_relunet():
                     'labels': training_sets['train']['labels'][offs:offs + batch_size],
                 }
 
-                _, loss_val, predictions = session.run([optimizer, loss, train_prediction], feed_dict={
-                    train['data']: batch['data'],
-                    train['labels']: batch['labels'],
-                })
+                summary, _, loss_val, predictions = session.run(
+                    [summaries, optimizer, loss, train_prediction],
+                    feed_dict={
+                        train['data']: batch['data'],
+                        train['labels']: batch['labels'],
+                    },
+                )
+
+                if summarize:
+                    writer.add_summary(summary, step)
 
                 if step % 200 == 0:
                     print("Global step: %d" % step)
@@ -328,4 +358,4 @@ def main_relunet():
 
 
 if __name__ == "__main__":
-    main_relunet()
+    main_relunet(summarize=True)
