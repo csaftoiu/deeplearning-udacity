@@ -294,8 +294,10 @@ def main_relunet(summarize):
             tf.scalar_summary('loss', loss)
 
         # learning rate
-        with tf.name_scope("learning_rate"):
+        with tf.name_scope("global_step"):
             global_step = tf.Variable(0, trainable=False)
+
+        with tf.name_scope("learning_rate"):
             learning_rate = tf.train.exponential_decay(
                 initial_learning_rate, global_step, learning_rate_steps, 0.96)
             # learning_rate = tf.constant(initial_learning_rate)
