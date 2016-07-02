@@ -1,5 +1,6 @@
 from __future__ import print_function
 
+import math
 import random
 
 import numpy as np
@@ -24,12 +25,12 @@ def load_training_sets():
     return training_sets
 
 
-def tf_dataset(dataset):
+def tf_dataset(dataset, prefix=None):
     """Get the dataset as a tensorflow constant. Optionally get a
     subset of the dataset."""
     return {
-        'data': tf.constant(dataset['data']),
-        'labels': tf.constant(dataset['labels'])
+        'data': tf.constant(dataset['data'], name=('%s_data' % prefix) if prefix else None),
+        'labels': tf.constant(dataset['labels'], name=('%s_labels' % prefix) if prefix else None)
     }
 
 
@@ -54,60 +55,67 @@ def main_relunet(summarize):
     # batch size for stochastic gradient descent
     batch_size = 128
 
-    # learning rate tweaking
-    initial_learning_rate = 0.5
-    learning_rate_steps = 50
-
-    # size of the hidden layers
-    relus = [dataset.image_size**2]
+    # sizes of the hidden layers
+    # relus = [10]
+    relus = [dataset.image_size**2 * 2,
+             dataset.image_size**2 * 4,
+             dataset.image_size**2 * 2,
+             dataset.num_classes * 50]
     # relus = [dataset.image_size**2, dataset.image_size**2]
     # relus = [dataset.image_size**2 * 4,
     #          dataset.image_size**2 * 3,
     #          dataset.image_size**2 * 2,
     #          dataset.image_size**2 * 1]
 
-    # loss penalization params
-    l2_loss_weight = 0.01
-
     # how often to print feedback
-    step_print = 100
-    step_eval = step_print
-
+    step_print = 50
+    step_eval = step_print * 10
+    # step_print
 
     graph = tf.Graph()
     with graph.as_default():
+        # learning rate tweaking
+        initial_learning_rate = tf.constant(0.00000005, name='initial_learning_rate')
+        learning_rate_steps = tf.constant(300, name='learning_rate_steps')
+
+        # loss penalization params
+        l2_loss_weight = tf.constant(0.005, name='loss_weight_scale')
+
         with tf.name_scope("training_data"):
             train = {
-                'data': tf.placeholder(tf.float32, shape=(batch_size, dataset.image_size ** 2)),
-                'labels': tf.placeholder(tf.float32, shape=(batch_size, dataset.num_classes)),
+                'data': tf.placeholder(tf.float32, shape=(batch_size, dataset.image_size ** 2),
+                                       name='batch_input'),
+                'labels': tf.placeholder(tf.float32, shape=(batch_size, dataset.num_classes),
+                                         name='batch_labels'),
             }
             batch_offset = tf.random_uniform(
                 (1,), dtype=tf.int32,
-                minval=0, maxval=len(training_sets['test']['labels']) - batch_size)
+                minval=0, maxval=len(training_sets['test']['labels']) - batch_size,
+                name='batch_offset')
 
         with tf.name_scope("validation_data"):
-            valid = tf_dataset(training_sets['valid'])
+            valid = tf_dataset(training_sets['valid'], 'valid')
 
         with tf.name_scope("testing_data"):
-            test = tf_dataset(training_sets['test'])
+            test = tf_dataset(training_sets['test'], 'test')
 
         # create & initialize training parameters
-        def make_weight(from_, to):
-            return tf.Variable(tf.truncated_normal([from_, to], stddev=0.5))
+        def make_weight(from_, to, name=None):
+            return tf.Variable(tf.truncated_normal([from_, to], stddev=0.5), name=name)
 
-        def make_bias(to):
-            return tf.Variable(tf.truncated_normal([to], stddev=0.5))
+        def make_bias(to, name=None):
+            return tf.Variable(tf.truncated_normal([to], stddev=0.5), name=name)
 
         layer_sizes = [dataset.image_size**2] + relus + [dataset.num_classes]
         with tf.name_scope("parameters"):
             with tf.name_scope("weights"):
-                weights = [make_weight(layer_sizes[i], layer_sizes[i+1])
+                weights = [make_weight(layer_sizes[i], layer_sizes[i+1], name="weights_%d" % i)
                            for i in xrange(len(layer_sizes) - 1)]
                 # for i, w in enumerate(weights):
                 #     tf.histogram_summary('weights_%d' % i, w)
 
             with tf.name_scope("biases"):
-                biases = [make_bias(layer_sizes[i + 1])
+                biases = [make_bias(layer_sizes[i + 1], name="biases_%d" % i)
                           for i in xrange(len(layer_sizes) - 1)]
                 # for i, b in enumerate(biases):
                 #     tf.histogram_summary('biases_%d' % i, b)
@@ -118,11 +126,13 @@ def main_relunet(summarize):
             pipeline = data
 
             for i in xrange(len(layer_sizes) - 1):
+                last = i == len(layer_sizes) - 2
                 with tf.name_scope("linear%d" % i):
                     pipeline = tf.matmul(pipeline, weights[i])
-                    pipeline = pipeline + biases[i]
+                    pipeline = tf.add(pipeline, biases[i])
 
-                if i != len(layer_sizes) - 2:
+                if not last:
+                    # insert relu after every one before the last
                     with tf.name_scope("relu%d" % i):
                         pipeline = tf.nn.relu(pipeline)
 
@@ -130,45 +140,56 @@ def main_relunet(summarize):
 
         with tf.name_scope("training_pipeline"):
             train_logits = build_logit_pipeline(train['data'])
-            train_prediction = tf.nn.softmax(train_logits)
+            train_prediction = tf.nn.softmax(train_logits, name='train_predictions')
 
         with tf.name_scope("validation_pipeline"):
             valid_logits = build_logit_pipeline(valid['data'])
-            valid_prediction = tf.nn.softmax(valid_logits)
+            valid_prediction = tf.nn.softmax(valid_logits, name='valid_predictions')
 
         with tf.name_scope("testing_pipeline"):
             test_logits = build_logit_pipeline(test['data'])
-            test_prediction = tf.nn.softmax(test_logits)
+            test_prediction = tf.nn.softmax(test_logits, name='test_predictions')
+
+        with tf.name_scope("accuracy_variables"):
+            # inserted via python code
+            batch_accuracy = tf.Variable(0.0, name='batch_accuracy')
+            valid_accuracy = tf.Variable(0.0, name='valid_accuracy')
+            tf.scalar_summary('accuracy/batch', batch_accuracy)
+            tf.scalar_summary('accuracy/valid', valid_accuracy)
 
         # the optimization
         # loss function is the mean of the cross-entropy of (the softmax of the
         # logits, the labels). This is built in exactly!
         with tf.name_scope("loss"):
-            loss = tf.reduce_mean(
-                tf.nn.softmax_cross_entropy_with_logits(train_logits, train['labels'])
-            )
+            with tf.name_scope("loss_main"):
+                loss_main = tf.reduce_mean(
+                    tf.nn.softmax_cross_entropy_with_logits(train_logits, train['labels']),
+                    name='loss_main',
+                )
+                tf.scalar_summary('loss/main', loss_main)
 
-            with tf.name_scope("l2_loss"):
+
+            with tf.name_scope("loss_weights"):
                 # calculate l2 loss as the concatenation of all of our
                 # trainable parameters
-                l2_loss = tf.nn.l2_loss(tf.concat(
+                l2_loss = l2_loss_weight * tf.nn.l2_loss(tf.concat(
                     0,
                     map(flatten_variable, weights) + map(flatten_variable, biases)
-                ))
+                ), name='loss_weights')
+                tf.scalar_summary('loss/weights', l2_loss)
 
-            loss += l2_loss_weight * l2_loss
-
-            tf.scalar_summary('loss', loss)
+            loss = tf.add(loss_main, l2_loss, name='loss')
+            tf.scalar_summary('loss/total', loss)
 
         # learning rate
         with tf.name_scope("global_step"):
-            global_step = tf.Variable(0, trainable=False)
+            global_step = tf.Variable(0, trainable=False, name='global_step')
 
-        with tf.name_scope("learning_rate"):
-            learning_rate = tf.train.exponential_decay(
-                initial_learning_rate, global_step, learning_rate_steps, 0.96)
-            # learning_rate = tf.constant(initial_learning_rate)
-            tf.scalar_summary('learning_rate', learning_rate)
+        learning_rate = tf.train.exponential_decay(
+            initial_learning_rate, global_step, learning_rate_steps, 0.96,
+            name='learning_rate')
+        # learning_rate = tf.constant(initial_learning_rate, name='learning_rate')
+        tf.scalar_summary('learning_rate', learning_rate)
 
         # optimizer - gradient descent, minimizing the loss function
         with tf.name_scope("optimizer"):
@@ -178,7 +199,7 @@ def main_relunet(summarize):
         writer = tf.train.SummaryWriter('logs/', graph=graph)
 
     # now that graph is created, run the session
-
+    last_valid = 0
     with tf.Session(graph=graph) as session:
         # initialize everything
         tf.initialize_all_variables().run()
@@ -202,24 +223,31 @@ def main_relunet(summarize):
                     },
                 )
 
-                if summarize:
-                    writer.add_summary(summary, step)
-
                 if step % step_print == 0:
+                    _batch_accuracy = accuracy(predictions, batch['labels'])
+                    batch_accuracy.assign(_batch_accuracy).op.run()
+
                     print("-----")
                     print("Global step: %d" % step)
-                    print("Learning rate: %f" % learning_rate.eval())
+                    print("log(Learning rate): %f" % math.log(learning_rate.eval()))
                     print("Batch loss function: %f" % loss_val)
 
                     print("Accuracy on batch data:   %.2f%%" % (
-                        accuracy(predictions, batch['labels']),
+                        _batch_accuracy,
                     ))
 
                 if step % step_eval == 0:
                     # evaluate predictions and see their accuracy
+                    _valid_accuracy = accuracy(valid_prediction.eval(), training_sets['valid']['labels'])
+                    valid_accuracy.assign(_valid_accuracy).op.run()
+
                     print("Accuracy on validation data: %.2f%%" % (
-                        accuracy(valid_prediction.eval(), training_sets['valid']['labels']),
+                        _valid_accuracy
                     ))
+                    # if last_valid
+
+                if summarize:
+                    writer.add_summary(summary, step)
 
             except KeyboardInterrupt:
                 print("Stopping from keyboard interrupt.")
