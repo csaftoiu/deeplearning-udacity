@@ -42,22 +42,37 @@ def accuracy(predictions, labels):
     return 100.0 * num_correct / predictions.shape[0]
 
 
+def flatten_variable(v):
+    from operator import mul
+    return tf.reshape(v, (int(reduce(mul, v.get_shape())),))
+
+
 def main_relunet(summarize):
     # initialize
     training_sets = load_training_sets()
 
-    # stochastic gradient descent
+    # batch size for stochastic gradient descent
     batch_size = 128
+
+    # learning rate tweaking
     initial_learning_rate = 0.5
     learning_rate_steps = 200
-    step_print = 100
-    step_eval = step_print
+
+    # size of the hidden layers
     relus = [dataset.image_size**2]
     # relus = [dataset.image_size**2, dataset.image_size**2]
     # relus = [dataset.image_size**2 * 4,
     #          dataset.image_size**2 * 3,
     #          dataset.image_size**2 * 2,
     #          dataset.image_size**2 * 1]
+
+    # loss penalization params
+    l2_loss_weight = 0.01
+
+    # how often to print feedback
+    step_print = 100
+    step_eval = step_print
+
 
     graph = tf.Graph()
     with graph.as_default():
@@ -88,9 +103,14 @@ def main_relunet(summarize):
             with tf.name_scope("weights"):
                 weights = [make_weight(layer_sizes[i], layer_sizes[i+1])
                            for i in xrange(len(layer_sizes) - 1)]
+                # for i, w in enumerate(weights):
+                #     tf.histogram_summary('weights_%d' % i, w)
+
             with tf.name_scope("biases"):
                 biases = [make_bias(layer_sizes[i + 1])
                           for i in xrange(len(layer_sizes) - 1)]
+                # for i, b in enumerate(biases):
+                #     tf.histogram_summary('biases_%d' % i, b)
 
         # pipeline to get a logit
         def build_logit_pipeline(data):
@@ -127,7 +147,17 @@ def main_relunet(summarize):
             loss = tf.reduce_mean(
                 tf.nn.softmax_cross_entropy_with_logits(train_logits, train['labels'])
             )
-            loss += tf.nn.l2_loss()
+
+            with tf.name_scope("l2_loss"):
+                # calculate l2 loss as the concatenation of all of our
+                # trainable parameters
+                l2_loss = tf.nn.l2_loss(tf.concat(
+                    0,
+                    map(flatten_variable, weights) + map(flatten_variable, biases)
+                ))
+
+            loss += l2_loss_weight * l2_loss
+
             tf.scalar_summary('loss', loss)
 
         # learning rate
@@ -176,6 +206,7 @@ def main_relunet(summarize):
                     writer.add_summary(summary, step)
 
                 if step % step_print == 0:
+                    print("-----")
                     print("Global step: %d" % step)
                     print("Learning rate: %f" % learning_rate.eval())
                     print("Batch loss function: %f" % loss_val)
