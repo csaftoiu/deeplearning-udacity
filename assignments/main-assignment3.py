@@ -56,7 +56,7 @@ def main_relunet(summarize):
 
     # learning rate tweaking
     initial_learning_rate = 0.5
-    learning_rate_steps = 200
+    learning_rate_steps = 50
 
     # size of the hidden layers
     relus = [dataset.image_size**2]
