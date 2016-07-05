@@ -89,8 +89,9 @@ named_configs = {
     '89.91%': {
         '--layers': [dataset.image_size**2],
     },
-    '93.51%': {
+    '94.45%': {
         '--layers': [5000],
+        '--rate-steps': 150,
     },
     # tiny training set, no dropout - gets ~68%
     'tiny_nodropout': {
@@ -115,6 +116,12 @@ named_configs = {
         '--rate-steps': 75000,
         '--rate-decay': 'linear',
         '--act-func': 'tanh',
+    },
+    'tanh_onelayer_92.7%': {
+        '--layers': [5000],
+        '--act-funcs': ['tanh'],
+        '--rate-steps': 50000,
+        '--rate-decay': 'linear',
     }
 }
 
