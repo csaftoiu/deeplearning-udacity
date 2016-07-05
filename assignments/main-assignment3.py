@@ -11,7 +11,10 @@ Options:
     --layers <layer_sizes>   List of sizes for the hidden relu layers to use,
                              e.g. [200, 100, 200] is three layers.
                              [default: [784]]
-    --act-func <func>        Activation function, e.g. tanh. [default: relu]
+    --act-func <func>        Activation function to use for all layers, e.g.
+                             tanh. [default: relu]
+    --act-funcs <funcs>      List of funcs to use for each layer. Overrides
+                             the --act-func parameter.
 
     --train-size <size>      Training set size [default: 200000]
     --valid-size <size>      Validation set size [default: 10000]
@@ -63,6 +66,10 @@ def is_activation_function(n):
     return hasattr(tf.nn, n)
 
 
+def is_list_activation_functions(l):
+    return isinstance(l, list) and all(is_activation_function(f) for f in l)
+
+
 def is_valid_decay(t):
     return t in ["exp", "linear"]
 
@@ -101,6 +108,13 @@ named_configs = {
         '--layers': [2500, 2500],
         '--initial-rate': 0.005,
         '--l2-loss-scale': 0.0001,
+    },
+    'deeper_88%': {
+        '--layers': [1750, 500, 500, 500, 500, 500],
+        '--initial-rate': 0.5,
+        '--rate-steps': 75000,
+        '--rate-decay': 'linear',
+        '--act-func': 'tanh',
     }
 }
 
@@ -118,6 +132,10 @@ args_schema = schema.Schema({
     '--layers': schema.And(schema.Use(ast.literal_eval), is_list_of_ints,
                            error='layers must be list of ints'),
     '--act-func': schema.And(is_activation_function, error='Unknown activation function'),
+    '--act-funcs': schema.Or(
+        lambda c: c is None,
+        schema.And(schema.Use(ast.literal_eval), is_list_activation_functions),
+        error='Unknown activation functions'),
 
     '--train-size': schema.Use(int),
     '--valid-size': schema.Use(int),
@@ -244,6 +262,11 @@ def main_relunet(args):
         print("==========\nTraining {:,} variables\n==========".format(num_variables))
 
         # pipeline to get a logit
+        def func_for_layer(i):
+            if arg('act-funcs'):
+                return arg('act-funcs')[i]
+            return arg('act-func')
+
         def build_logit_pipeline(data, include_dropout):
             # X --> *W1 --> +b1 --> relu --> *W2 --> +b2 ... --> softmax etc...
             pipeline = data
