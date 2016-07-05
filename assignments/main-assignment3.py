@@ -19,9 +19,14 @@ Options:
     --batch-size <size>      Batch size for stochastic gradient
                              descent [default: 128]
 
-    --initial-rate <rate>    Initial learning rate for exponential
-                             learning rate decay [default: 0.05]
+    --initial-rate <rate>    Initial learning rate [default: 0.05]
     --rate-steps <steps>     Rate step decay parameter [default: 50.0]
+    --rate-decay <type>      Rate decay type, either:
+                               "exp": exponential decay, rate-steps is passed
+                                      into decay function
+                               "linear": linear decay, takes `--rate-steps`
+                                         steps to reach `0`.
+                             [default: exp]
 
     --l2-loss-scale <val>    The amount to multiply the l2 loss
                              of the weights by [default: 0.01]
@@ -56,6 +61,10 @@ def is_list_of_ints(f):
 
 def is_activation_function(n):
     return hasattr(tf.nn, n)
+
+
+def is_valid_decay(t):
+    return t in ["exp", "linear"]
 
 
 # store named parameters for
@@ -117,6 +126,7 @@ args_schema = schema.Schema({
 
     '--initial-rate': schema.Use(float),
     '--rate-steps': schema.Use(float),
+    '--rate-decay': schema.And(is_valid_decay),
 
     '--l2-loss-scale': schema.Use(float),
 
@@ -305,9 +315,19 @@ def main_relunet(args):
         with tf.name_scope("global_step"):
             global_step = tf.Variable(0, trainable=False, name='global_step')
 
-        learning_rate = tf.train.exponential_decay(
-            initial_learning_rate, global_step, learning_rate_steps, 0.96,
-            name='learning_rate')
+        if arg('rate-decay') == 'exp':
+            learning_rate = tf.train.exponential_decay(
+                initial_learning_rate, global_step, learning_rate_steps, 0.96,
+                name='learning_rate')
+        elif arg('rate-decay') == 'linear':
+            learning_rate = initial_learning_rate - (
+                tf.to_float(global_step)
+                * tf.to_float(initial_learning_rate)
+                / tf.to_float(tf.constant(arg('rate-steps')))
+            )
+        else:
+            raise NotImplementedError("Decay type %s" % arg('rate-decay'))
+
         # learning_rate = tf.constant(initial_learning_rate, name='learning_rate')
         tf.scalar_summary('learning_rate', learning_rate)
 
@@ -349,7 +369,10 @@ def main_relunet(args):
 
                     print("-----")
                     print("Global step: %d" % step)
-                    print("log(Learning rate): %f" % math.log(learning_rate.eval()))
+                    if arg('rate-decay') == 'exp':
+                        print("log(Learning rate): %s" % math.log(learning_rate.eval()))
+                    else:
+                        print("Learning rate: %s" % learning_rate.eval())
                     print("Batch loss function: %f" % loss_val)
 
                     print("Accuracy on batch data:   %.2f%%" % (
