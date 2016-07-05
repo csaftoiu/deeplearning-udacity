@@ -27,7 +27,8 @@ def sizeof_fmt(num, suffix='B'):
 
 def maybe_download(filename, expected_bytes, force=False):
     """Download a file if not present, and make sure it's the right size."""
-    os.makedirs(DATA_DIR, exist_ok=True)
+    if not P.exists(DATA_DIR):
+        os.makedirs(DATA_DIR)
     filepath = P.join(DATA_DIR, filename)
     if force or not P.exists(filepath):
         print("Downloading %s, %s bytes..." % (filename, sizeof_fmt(expected_bytes)))
@@ -44,7 +45,8 @@ def maybe_download(filename, expected_bytes, force=False):
 
 
 def maybe_extract(filename, force=False):
-    os.makedirs(DATA_DIR, exist_ok=True)
+    if not P.exists(DATA_DIR):
+        os.makedirs(DATA_DIR)
     filepath = P.join(DATA_DIR, filename)
     root = P.splitext(P.splitext(filepath)[0])[0]  # remove .tar.gz
     if P.isdir(root) and not force:
