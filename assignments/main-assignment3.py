@@ -401,7 +401,8 @@ def main_relunet(args):
                 if arg('summarize'):
                     writer.add_summary(summary, step)
 
-                if int(learning_rate.eval()) == 0:
+                if learning_rate.eval() == 0:
+                    print(learning_rate.eval())
                     print("Done learning")
                     break
 
