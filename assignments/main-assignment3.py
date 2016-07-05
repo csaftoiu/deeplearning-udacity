@@ -30,6 +30,7 @@ Options:
                              training batch accuracy [default: 300]
     --step-eval <step>       How often to print the feedback of
                              the validation set accuracy [default: 300]
+    --show-weights           Show sample weights & biases when printing.
 """
 
 from __future__ import print_function
@@ -297,8 +298,7 @@ def main_relunet(args):
                 l2_loss = l2_loss_weight * l2_loss_unweighted
                 tf.scalar_summary('loss/weights_scaled', l2_loss)
 
-            # loss = tf.add(loss_main, l2_loss, name='loss')
-            loss = loss_main
+            loss = tf.add(loss_main, l2_loss, name='loss')
             tf.scalar_summary('loss/total', loss)
 
         # learning rate
@@ -356,15 +356,14 @@ def main_relunet(args):
                         _batch_accuracy,
                     ))
 
-                    ws = session.run(weights, feed_dict=feed_dict)
-                    bs = session.run(biases, feed_dict=feed_dict)
-                    print("Sample Weights and biases:")
-                    for i, (w, b) in enumerate(zip(ws, bs)):
-                        print("-- Layer %d --" % (i,))
-                        print(w[:5, :5])
-                        print(b[:5])
-
-
+                    if arg('show-weights'):
+                        ws = session.run(weights, feed_dict=feed_dict)
+                        bs = session.run(biases, feed_dict=feed_dict)
+                        print("Sample Weights and biases:")
+                        for i, (w, b) in enumerate(zip(ws, bs)):
+                            print("-- Layer %d --" % (i,))
+                            print(w[:5, :5])
+                            print(b[:5])
 
                 if step % arg('step-eval') == 0:
                     # evaluate predictions and see their accuracy
