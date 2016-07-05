@@ -66,8 +66,8 @@ named_configs = {
     '89.91%': {
         '--relus': [dataset.image_size**2],
     },
-    '91.06%': {
-        '--relus': [dataset.image_size**2 * 4],
+    '93.51%': {
+        '--relus': [5000],
     },
     # tiny training set, no dropout - gets ~68%
     'tiny_nodropout': {
@@ -81,6 +81,11 @@ named_configs = {
         '--relus': [dataset.image_size**2],
         '--no-dropout': False,
     },
+    'three_layer_91.2%': {
+        '--relus': [2500, 2500],
+        '--initial-rate': 0.005,
+        '--l2-loss-scale': 0.0001,
+    }
 }
 
 
@@ -208,6 +213,15 @@ def main_relunet(args):
                           for i in xrange(len(layer_sizes) - 1)]
                 # for i, b in enumerate(biases):
                 #     tf.histogram_summary('biases_%d' % i, b)
+
+        def product(t):
+            return reduce(lambda x,y: x*y, t, 1)
+        num_variables = 0
+        for w in weights:
+            num_variables += product(map(int, w.get_shape()))
+        for b in biases:
+            num_variables += product(map(int, w.get_shape()))
+        print("==========\nTraining {:,} variables\n==========".format(num_variables))
 
         # pipeline to get a logit
         def build_logit_pipeline(data, include_dropout):
