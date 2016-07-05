@@ -271,8 +271,6 @@ def main_relunet(args):
             tf.scalar_summary('accuracy/batch', batch_accuracy)
             tf.scalar_summary('accuracy/valid', valid_accuracy)
 
-        print("==========\nTraining logits shape: %s\n==========" % (train_logits.get_shape(),))
-
         # the optimization
         # loss function is the mean of the cross-entropy of (the softmax of the
         # logits, the labels). This is built in exactly!
@@ -335,13 +333,14 @@ def main_relunet(args):
                     'data': training_sets['train']['data'][offs:offs + arg('batch-size'), :],
                     'labels': training_sets['train']['labels'][offs:offs + arg('batch-size')],
                 }
-
-                tl, summary, _, loss_val, predictions = session.run(
-                    [train_logits, summaries, optimizer, loss, train_prediction],
-                    feed_dict={
+                feed_dict = {
                         train['data']: batch['data'],
                         train['labels']: batch['labels'],
-                    },
+                    }
+
+                summary, _, loss_val, predictions = session.run(
+                    [summaries, optimizer, loss, train_prediction],
+                    feed_dict=feed_dict,
                 )
 
                 if step % arg('step-print') == 0:
@@ -352,11 +351,20 @@ def main_relunet(args):
                     print("Global step: %d" % step)
                     print("log(Learning rate): %f" % math.log(learning_rate.eval()))
                     print("Batch loss function: %f" % loss_val)
-                    print("Training logits: %s" % (tl,))
 
                     print("Accuracy on batch data:   %.2f%%" % (
                         _batch_accuracy,
                     ))
+
+                    ws = session.run(weights, feed_dict=feed_dict)
+                    bs = session.run(biases, feed_dict=feed_dict)
+                    print("Sample Weights and biases:")
+                    for i, (w, b) in enumerate(zip(ws, bs)):
+                        print("-- Layer %d --" % (i,))
+                        print(w[:5, :5])
+                        print(b[:5])
+
+
 
                 if step % arg('step-eval') == 0:
                     # evaluate predictions and see their accuracy
