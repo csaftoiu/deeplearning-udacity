@@ -319,6 +319,7 @@ def main_relunet(args):
             learning_rate = tf.train.exponential_decay(
                 initial_learning_rate, global_step, learning_rate_steps, 0.96,
                 name='learning_rate')
+            learning_rate = tf.maximum(learning_rate, 0)
         elif arg('rate-decay') == 'linear':
             learning_rate = initial_learning_rate - (
                 tf.to_float(global_step)
@@ -399,6 +400,10 @@ def main_relunet(args):
 
                 if arg('summarize'):
                     writer.add_summary(summary, step)
+
+                if int(learning_rate.eval()) == 0:
+                    print("Done learning")
+                    break
 
             except KeyboardInterrupt:
                 print("Stopping from keyboard interrupt.")
