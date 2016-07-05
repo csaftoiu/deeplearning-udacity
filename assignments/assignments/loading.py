@@ -48,6 +48,7 @@ def maybe_extract(filename, force=False):
     if not P.exists(DATA_DIR):
         os.makedirs(DATA_DIR)
     filepath = P.join(DATA_DIR, filename)
+    print(filename, filepath)
     root = P.splitext(P.splitext(filepath)[0])[0]  # remove .tar.gz
     if P.isdir(root) and not force:
         # You may override by setting force=True.
