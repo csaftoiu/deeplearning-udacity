@@ -33,7 +33,7 @@ def maybe_download(filename, expected_bytes, force=False):
     if force or not P.exists(filepath):
         print("Downloading %s, %s bytes..." % (filename, sizeof_fmt(expected_bytes)))
         url = 'http://commondatastorage.googleapis.com/books1000/'
-        filename, _ = urlretrieve(url + filename, filepath)
+        urlretrieve(url + filename, filepath)
 
     statinfo = os.stat(filepath)
     if statinfo.st_size == expected_bytes:
