@@ -7,9 +7,11 @@ Options:
 
     --no-dropout             Don't use dropout
     --summarize              Summarize results and store them
-    --relus <layer_sizes>    List of sizes for the hidden relu layers to use,
+
+    --layers <layer_sizes>   List of sizes for the hidden relu layers to use,
                              e.g. [200, 100, 200] is three layers.
                              [default: [784]]
+    --act-func <func>        Activation function, e.g. tanh. [default: relu]
 
     --train-size <size>      Training set size [default: 200000]
     --valid-size <size>      Validation set size [default: 10000]
@@ -51,38 +53,42 @@ def is_list_of_ints(f):
     return isinstance(f, list) and all(isinstance(el, int) for el in f)
 
 
+def is_activation_function(n):
+    return hasattr(tf.nn, n)
+
+
 # store named parameters for
 # multiple test runs
 named_configs = {
     '84%_onelayer': {
         '--l2-loss-scale': 0.0,
-        '--relus': [dataset.image_size**2],
+        '--layers': [dataset.image_size**2],
         '--no-dropout': True,
     },
     '85.18%': {
-        '--relus': [dataset.image_size**2],
+        '--layers': [dataset.image_size**2],
         '--no-dropout': True,
     },
     '89.91%': {
-        '--relus': [dataset.image_size**2],
+        '--layers': [dataset.image_size**2],
     },
     '93.51%': {
-        '--relus': [5000],
+        '--layers': [5000],
     },
     # tiny training set, no dropout - gets ~68%
     'tiny_nodropout': {
         '--train-size': 256,
-        '--relus': [dataset.image_size**2],
+        '--layers': [dataset.image_size**2],
         '--no-dropout': True,
     },
     # tiny training set, with dropout - gets ~78%! huge improvement!
     'tiny_yesdropout': {
         '--train-size': 256,
-        '--relus': [dataset.image_size**2],
+        '--layers': [dataset.image_size**2],
         '--no-dropout': False,
     },
     'three_layer_91.2%': {
-        '--relus': [2500, 2500],
+        '--layers': [2500, 2500],
         '--initial-rate': 0.005,
         '--l2-loss-scale': 0.0001,
     }
@@ -98,7 +104,10 @@ def is_named_config(f):
 
 args_schema = schema.Schema({
     '--config': schema.And(is_named_config, error='Named config is not present'),
-    '--relus': schema.And(schema.Use(ast.literal_eval), is_list_of_ints, error='relus must be list of ints'),
+
+    '--layers': schema.And(schema.Use(ast.literal_eval), is_list_of_ints,
+                           error='layers must be list of ints'),
+    '--act-func': schema.And(is_activation_function, error='Unknown activation function'),
 
     '--train-size': schema.Use(int),
     '--valid-size': schema.Use(int),
@@ -200,7 +209,7 @@ def main_relunet(args):
         def make_bias(to, name=None):
             return tf.Variable(tf.truncated_normal([to], stddev=0.5), name=name)
 
-        layer_sizes = [dataset.image_size**2] + arg('relus') + [dataset.num_classes]
+        layer_sizes = [dataset.image_size**2] + arg('layers') + [dataset.num_classes]
         with tf.name_scope("parameters"):
             with tf.name_scope("weights"):
                 weights = [make_weight(layer_sizes[i], layer_sizes[i+1], name="weights_%d" % i)
@@ -237,7 +246,7 @@ def main_relunet(args):
                 if not last:
                     # insert relu after every one before the last
                     with tf.name_scope("relu%d" % i):
-                        pipeline = tf.nn.relu(pipeline)
+                        pipeline = getattr(tf.nn, arg('act-func'))(pipeline)
                         if include_dropout and not arg('no-dropout'):
                             pipeline = tf.nn.dropout(pipeline, 0.5, name='dropout')
 
@@ -261,6 +270,8 @@ def main_relunet(args):
             valid_accuracy = tf.Variable(0.0, trainable=False, name='valid_accuracy')
             tf.scalar_summary('accuracy/batch', batch_accuracy)
             tf.scalar_summary('accuracy/valid', valid_accuracy)
+
+        print("==========\nTraining logits shape: %s\n==========" % (train_logits.get_shape(),))
 
         # the optimization
         # loss function is the mean of the cross-entropy of (the softmax of the
@@ -288,7 +299,8 @@ def main_relunet(args):
                 l2_loss = l2_loss_weight * l2_loss_unweighted
                 tf.scalar_summary('loss/weights_scaled', l2_loss)
 
-            loss = tf.add(loss_main, l2_loss, name='loss')
+            # loss = tf.add(loss_main, l2_loss, name='loss')
+            loss = loss_main
             tf.scalar_summary('loss/total', loss)
 
         # learning rate
@@ -324,8 +336,8 @@ def main_relunet(args):
                     'labels': training_sets['train']['labels'][offs:offs + arg('batch-size')],
                 }
 
-                summary, _, loss_val, predictions = session.run(
-                    [summaries, optimizer, loss, train_prediction],
+                tl, summary, _, loss_val, predictions = session.run(
+                    [train_logits, summaries, optimizer, loss, train_prediction],
                     feed_dict={
                         train['data']: batch['data'],
                         train['labels']: batch['labels'],
@@ -340,6 +352,7 @@ def main_relunet(args):
                     print("Global step: %d" % step)
                     print("log(Learning rate): %f" % math.log(learning_rate.eval()))
                     print("Batch loss function: %f" % loss_val)
+                    print("Training logits: %s" % (tl,))
 
                     print("Accuracy on batch data:   %.2f%%" % (
                         _batch_accuracy,
