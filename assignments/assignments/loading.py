@@ -105,8 +105,8 @@ def maybe_pickle(data_folders, min_num_images_per_class,
         set_filename = folder + '.pickle'
         dataset_names.append(set_filename)
         if P.exists(set_filename) and not force:
-            # You may override by setting force=True.
-            print('%s already present - Skipping pickling.' % set_filename)
+            # print('%s already present - Skipping pickling.' % set_filename)
+            pass
         else:
             print('Pickling %s.' % set_filename)
             dataset = load_letter(folder, min_num_images_per_class, image_size)

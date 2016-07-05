@@ -1,21 +1,114 @@
 """Usage:
-    run.py [-c <config>]
+    run.py [-h|--help] [-c <config>] [options]
 
 Options:
-    -c --config <config>    Which configuration to run. [default: main]
+    -h --help                Show help
+    -c --config <config>     Which named configuration to run.
+
+    --no-dropout             Don't use dropout
+    --summarize              Summarize results and store them
+    --relus <layer_sizes>    List of sizes for the hidden relu layers to use,
+                             e.g. [200, 100, 200] is three layers.
+                             [default: [784]]
+
+    --train-size <size>      Training set size [default: 200000]
+    --valid-size <size>      Validation set size [default: 10000]
+    --test-size <size>       Testing set size [default: 10000]
+    --batch-size <size>      Batch size for stochastic gradient
+                             descent [default: 128]
+
+    --initial-rate <rate>    Initial learning rate for exponential
+                             learning rate decay [default: 0.05]
+    --rate-steps <steps>     Rate step decay parameter [default: 50.0]
+
+    --l2-loss-scale <val>    The amount to multiply the l2 loss
+                             of the weights by [default: 0.01]
+
+    --step-print <step>      How often to print feedback of the
+                             training batch accuracy [default: 300]
+    --step-eval <step>       How often to print the feedback of
+                             the validation set accuracy [default: 300]
 """
 
 from __future__ import print_function
 
+import ast
 import math
 import os
+import pprint
+import sys
 import time
 
 from docopt import docopt
 import numpy as np
+import schema
 import tensorflow as tf
 
 from assignments import loading, dataset, classification
+
+
+def is_list_of_ints(f):
+    return isinstance(f, list) and all(isinstance(el, int) for el in f)
+
+
+# store named parameters for
+# multiple test runs
+named_configs = {
+    '84%_onelayer': {
+        '--l2-loss-scale': 0.0,
+        '--relus': [dataset.image_size**2],
+        '--no-dropout': True,
+    },
+    '85.18%': {
+        '--relus': [dataset.image_size**2],
+        '--no-dropout': True,
+    },
+    '89.91%': {
+        '--relus': [dataset.image_size**2],
+    },
+    '91.06%': {
+        '--relus': [dataset.image_size**2 * 4],
+    },
+    # tiny training set, no dropout - gets ~68%
+    'tiny_nodropout': {
+        '--train_size': 256,
+        '--relus': [dataset.image_size**2],
+        '--no-dropout': True,
+    },
+    # tiny training set, with dropout - gets ~78%! huge improvement!
+    'tiny_yesdropout': {
+        '--train_size': 256,
+        '--relus': [dataset.image_size**2],
+        '--no-dropout': False,
+    },
+}
+
+
+def is_named_config(f):
+    if f is None:
+        return True
+
+    return f in named_configs.keys()
+
+
+args_schema = schema.Schema({
+    '--config': schema.And(is_named_config, error='Named config is not present'),
+    '--relus': schema.And(schema.Use(ast.literal_eval), is_list_of_ints, error='relus must be list of ints'),
+
+    '--train-size': schema.Use(int),
+    '--valid-size': schema.Use(int),
+    '--test-size': schema.Use(int),
+    '--batch-size': schema.Use(int),
+
+    '--initial-rate': schema.Use(float),
+    '--rate-steps': schema.Use(float),
+
+    '--l2-loss-scale': schema.Use(float),
+
+    '--step-print': schema.Use(int),
+    '--step-eval': schema.Use(int),
+    object: object,
+})
 
 
 def load_training_sets(train_size, valid_size, test_size):
@@ -55,89 +148,38 @@ def flatten_variable(v):
     return tf.reshape(v, (int(reduce(mul, v.get_shape())),))
 
 
-# store parameters
-parameters = {
-    'defaults': {
-        # training sets sizes
-        'train_size': 200000,
-        'valid_size': 10000,
-        'test_size': 10000,
-        # batch size for SGD
-        'batch_size': 128,
-        # learning rate
-        'initial_learning_rate': 0.05,
-        'l2_loss_weight_scale': 0.01,
-        'learning_rate_steps': 50.0,
-        # feedback
-        'step_print': 300,
-        'step_eval': 300,
-    },
-    '84%_onelayer': {
-        'l2_loss_weight_scale': 0.0,
-        'relus': [dataset.image_size**2],
-        'use_dropout': False,
-    },
-    '85.18%': {
-        'relus': [dataset.image_size**2],
-        'use_dropout': False,
-    },
-    '89.91%': {
-        'relus': [dataset.image_size**2],
-        'use_dropout': True,
-    },
-    '91.06%': {
-        'relus': [dataset.image_size**2 * 4],
-        'use_dropout': True,
-    },
-    'tiny_nodropout': {
-        'train_size': 256,
-        'relus': [dataset.image_size**2],
-        'use_dropout': False,
-    },
-    'tiny_yesdropout': {
-        'train_size': 256,
-        'relus': [dataset.image_size**2],
-        'use_dropout': True,
-    },
-    'main': {
-        'relus': [dataset.image_size**2 * 4],
-        'use_dropout': True,
-    },
-}
-
-
-def main_relunet(summarize=True, **kwargs):
+def main_relunet(args):
     def arg(name, _missing=object()):
-        res = kwargs.get(name, parameters['defaults'].get(name, _missing))
+        res = args.get('--%s' % name, _missing)
         if res is _missing:
-            raise ValueError("Parameter '%s' is required, has no default" % (name,))
+            raise ValueError("Parameter '%s' is required, is not present" % (name,))
         return res
 
     training_sets = load_training_sets(
-        train_size=arg('train_size'),
-        valid_size=arg('valid_size'),
-        test_size=arg('test_size'),
+        train_size=arg('train-size'),
+        valid_size=arg('valid-size'),
+        test_size=arg('test-size'),
     )
 
     graph = tf.Graph()
     with graph.as_default():
         # learning rate tweaking
-        initial_learning_rate = tf.constant(arg('initial_learning_rate'), name='initial_learning_rate')
-        learning_rate_steps = tf.constant(arg('learning_rate_steps'), name='learning_rate_steps')
+        initial_learning_rate = tf.constant(arg('initial-rate'), name='initial_learning_rate')
+        learning_rate_steps = tf.constant(arg('rate-steps'), name='learning_rate_steps')
 
         # loss penalization params
-        l2_loss_weight = tf.constant(arg('l2_loss_weight_scale'), name='loss_weight_scale')
+        l2_loss_weight = tf.constant(arg('l2-loss-scale'), name='loss_weight_scale')
 
         with tf.name_scope("training_data"):
             train = {
-                'data': tf.placeholder(tf.float32, shape=(arg('batch_size'), dataset.image_size ** 2),
+                'data': tf.placeholder(tf.float32, shape=(arg('batch-size'), dataset.image_size ** 2),
                                        name='batch_input'),
-                'labels': tf.placeholder(tf.float32, shape=(arg('batch_size'), dataset.num_classes),
+                'labels': tf.placeholder(tf.float32, shape=(arg('batch-size'), dataset.num_classes),
                                          name='batch_labels'),
             }
             batch_offset = tf.random_uniform(
                 (1,), dtype=tf.int32,
-                minval=0, maxval=len(training_sets['train']['labels']) - arg('batch_size'),
+                minval=0, maxval=len(training_sets['train']['labels']) - arg('batch-size'),
                 name='batch_offset')
 
         with tf.name_scope("validation_data"):
@@ -182,7 +224,7 @@ def main_relunet(summarize=True, **kwargs):
                     # insert relu after every one before the last
                     with tf.name_scope("relu%d" % i):
                         pipeline = tf.nn.relu(pipeline)
-                        if include_dropout and arg('use_dropout'):
+                        if include_dropout and not arg('no-dropout'):
                             pipeline = tf.nn.dropout(pipeline, 0.5, name='dropout')
 
             return pipeline
@@ -264,8 +306,8 @@ def main_relunet(summarize=True, **kwargs):
                 step = global_step.eval()
                 offs = batch_offset.eval()[0]
                 batch = {
-                    'data': training_sets['train']['data'][offs:offs + arg('batch_size'), :],
-                    'labels': training_sets['train']['labels'][offs:offs + arg('batch_size')],
+                    'data': training_sets['train']['data'][offs:offs + arg('batch-size'), :],
+                    'labels': training_sets['train']['labels'][offs:offs + arg('batch-size')],
                 }
 
                 summary, _, loss_val, predictions = session.run(
@@ -276,7 +318,7 @@ def main_relunet(summarize=True, **kwargs):
                     },
                 )
 
-                if step % arg('step_print') == 0:
+                if step % arg('step-print') == 0:
                     _batch_accuracy = accuracy(predictions, batch['labels'])
                     batch_accuracy.assign(_batch_accuracy).op.run()
 
@@ -289,7 +331,7 @@ def main_relunet(summarize=True, **kwargs):
                         _batch_accuracy,
                     ))
 
-                if step % arg('step_eval') == 0:
+                if step % arg('step-eval') == 0:
                     # evaluate predictions and see their accuracy
                     _valid_accuracy = accuracy(valid_prediction.eval(), training_sets['valid']['labels'])
                     valid_accuracy.assign(_valid_accuracy).op.run()
@@ -298,7 +340,7 @@ def main_relunet(summarize=True, **kwargs):
                         _valid_accuracy
                     ))
 
-                if summarize:
+                if arg('summarize'):
                     writer.add_summary(summary, step)
 
             except KeyboardInterrupt:
@@ -312,4 +354,15 @@ def main_relunet(summarize=True, **kwargs):
 
 if __name__ == "__main__":
     args = docopt(__doc__)
-    main_relunet(summarize=True, **parameters[args['--config']])
+    try:
+        args = args_schema.validate(args)
+    except schema.SchemaError as e:
+        sys.exit(e.code)
+
+    if args['--config']:
+        args.update(named_configs[args['--config']])
+
+    print("Using the following arguments:")
+    pprint.pprint(args)
+
+    main_relunet(args)
