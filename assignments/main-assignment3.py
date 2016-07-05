@@ -71,13 +71,13 @@ named_configs = {
     },
     # tiny training set, no dropout - gets ~68%
     'tiny_nodropout': {
-        '--train_size': 256,
+        '--train-size': 256,
         '--relus': [dataset.image_size**2],
         '--no-dropout': True,
     },
     # tiny training set, with dropout - gets ~78%! huge improvement!
     'tiny_yesdropout': {
-        '--train_size': 256,
+        '--train-size': 256,
         '--relus': [dataset.image_size**2],
         '--no-dropout': False,
     },
