@@ -1,21 +1,29 @@
+"""Usage:
+    run.py [-c <config>]
+
+Options:
+    -c --config <config>    Which configuration to run. [default: main]
+"""
+
 from __future__ import print_function
 
 import math
 import os
 import time
 
+from docopt import docopt
 import numpy as np
 import tensorflow as tf
 
 from assignments import loading, dataset, classification
 
 
-def load_training_sets():
+def load_training_sets(train_size, valid_size, test_size):
     """Get the training sets for use in tensorflow."""
     train_datasets, test_datasets = loading.load_datasets()
     training_sets = dataset.get_training_sets(
         train_datasets, test_datasets,
-        train_size=200000, valid_size=10000, test_size=10000,
+        train_size=train_size, valid_size=valid_size, test_size=test_size,
         store_pickle=True)
 
     training_sets = dataset.mapsets(dataset.flatten, training_sets)
@@ -49,105 +57,87 @@ def flatten_variable(v):
 
 # store parameters
 parameters = {
-    '84%_onelayer': {
+    'defaults': {
+        # training sets sizes
+        'train_size': 200000,
+        'valid_size': 10000,
+        'test_size': 10000,
+        # batch size for SGD
         'batch_size': 128,
+        # learning rate
         'initial_learning_rate': 0.05,
+        'l2_loss_weight_scale': 0.01,
         'learning_rate_steps': 50.0,
+        # feedback
+        'step_print': 300,
+        'step_eval': 300,
+    },
+    '84%_onelayer': {
         'l2_loss_weight_scale': 0.0,
         'relus': [dataset.image_size**2],
-        'step_print': 300,
-        'step_eval': 300,
+        'use_dropout': False,
     },
     '85.18%': {
-        'batch_size': 128,
-        'initial_learning_rate': 0.05,
-        'learning_rate_steps': 50.0,
-        'l2_loss_weight_scale': 0.01,
         'relus': [dataset.image_size**2],
-        'step_print': 300,
-        'step_eval': 300,
+        'use_dropout': False,
     },
     '89.91%': {
-        'batch_size': 128,
-        'initial_learning_rate': 0.05,
-        'learning_rate_steps': 50.0,
-        'l2_loss_weight_scale': 0.01,
         'relus': [dataset.image_size**2],
-        'step_print': 300,
-        'step_eval': 300,
         'use_dropout': True,
     },
-    '90.62%': {
-        'batch_size': 128,
-        'initial_learning_rate': 0.05,
-        'learning_rate_steps': 50.0,
-        'l2_loss_weight_scale': 0.01,
+    '91.06%': {
         'relus': [dataset.image_size**2 * 4],
-        'step_print': 300,
-        'step_eval': 300,
+        'use_dropout': True,
+    },
+    'tiny_nodropout': {
+        'train_size': 256,
+        'relus': [dataset.image_size**2],
+        'use_dropout': False,
+    },
+    'tiny_yesdropout': {
+        'train_size': 256,
+        'relus': [dataset.image_size**2],
         'use_dropout': True,
     },
     'main': {
-        'batch_size': 128,
-        'initial_learning_rate': 0.05,
-        'learning_rate_steps': 50.0,
-        'l2_loss_weight_scale': 0.01,
         'relus': [dataset.image_size**2 * 4],
-        'step_print': 300,
-        'step_eval': 300,
         'use_dropout': True,
     },
 }
 
 
 def main_relunet(summarize=True, **kwargs):
-    # set args for short
-    args = {}
+    def arg(name, _missing=object()):
+        res = kwargs.get(name, parameters['defaults'].get(name, _missing))
+        if res is _missing:
+            raise ValueError("Parameter '%s' is required, has no default" % (name,))
+        return res
 
-    def arg(name, default):
-        args[name] = kwargs.get(name, default)
-
-    # initialize
-    training_sets = load_training_sets()
-
-    # batch size for stochastic gradient descent
-    arg('batch_size', 128)
-
-    # learning rate
-    arg('initial_learning_rate', 0.05)
-    arg('learning_rate_steps', 50.0)
-    arg('l2_loss_weight_scale', 0.0)
-
-    # sizes of the hidden layers
-    arg('relus', [
-        dataset.image_size**2,
-    ])
-    arg('use_dropout', True)
-
-    # how often to print feedback
-    arg('step_print', 300)
-    arg('step_eval', 300)
-    # step_print
+    training_sets = load_training_sets(
+        train_size=arg('train_size'),
+        valid_size=arg('valid_size'),
+        test_size=arg('test_size'),
+    )
 
     graph = tf.Graph()
     with graph.as_default():
         # learning rate tweaking
-        initial_learning_rate = tf.constant(args['initial_learning_rate'], name='initial_learning_rate')
-        learning_rate_steps = tf.constant(args['learning_rate_steps'], name='learning_rate_steps')
+        initial_learning_rate = tf.constant(arg('initial_learning_rate'), name='initial_learning_rate')
+        learning_rate_steps = tf.constant(arg('learning_rate_steps'), name='learning_rate_steps')
 
         # loss penalization params
-        l2_loss_weight = tf.constant(args['l2_loss_weight_scale'], name='loss_weight_scale')
+        l2_loss_weight = tf.constant(arg('l2_loss_weight_scale'), name='loss_weight_scale')
 
         with tf.name_scope("training_data"):
             train = {
-                'data': tf.placeholder(tf.float32, shape=(args['batch_size'], dataset.image_size ** 2),
+                'data': tf.placeholder(tf.float32, shape=(arg('batch_size'), dataset.image_size ** 2),
                                        name='batch_input'),
-                'labels': tf.placeholder(tf.float32, shape=(args['batch_size'], dataset.num_classes),
+                'labels': tf.placeholder(tf.float32, shape=(arg('batch_size'), dataset.num_classes),
                                          name='batch_labels'),
             }
             batch_offset = tf.random_uniform(
                 (1,), dtype=tf.int32,
-                minval=0, maxval=len(training_sets['test']['labels']) - args['batch_size'],
+                minval=0, maxval=len(training_sets['train']['labels']) - arg('batch_size'),
                 name='batch_offset')
 
         with tf.name_scope("validation_data"):
@@ -163,7 +153,7 @@ def main_relunet(summarize=True, **kwargs):
         def make_bias(to, name=None):
             return tf.Variable(tf.truncated_normal([to], stddev=0.5), name=name)
 
-        layer_sizes = [dataset.image_size**2] + args['relus'] + [dataset.num_classes]
+        layer_sizes = [dataset.image_size**2] + arg('relus') + [dataset.num_classes]
         with tf.name_scope("parameters"):
             with tf.name_scope("weights"):
                 weights = [make_weight(layer_sizes[i], layer_sizes[i+1], name="weights_%d" % i)
@@ -192,7 +182,7 @@ def main_relunet(summarize=True, **kwargs):
                     # insert relu after every one before the last
                     with tf.name_scope("relu%d" % i):
                         pipeline = tf.nn.relu(pipeline)
-                        if include_dropout and args['use_dropout']:
+                        if include_dropout and arg('use_dropout'):
                             pipeline = tf.nn.dropout(pipeline, 0.5, name='dropout')
 
             return pipeline
@@ -263,7 +253,6 @@ def main_relunet(summarize=True, **kwargs):
         writer = tf.train.SummaryWriter(os.path.join('logs', str(time.time())), graph=graph)
 
     # now that graph is created, run the session
-    last_valid = 0
     with tf.Session(graph=graph) as session:
         # initialize everything
         tf.initialize_all_variables().run()
@@ -275,8 +264,8 @@ def main_relunet(summarize=True, **kwargs):
                 step = global_step.eval()
                 offs = batch_offset.eval()[0]
                 batch = {
-                    'data': training_sets['train']['data'][offs:offs + args['batch_size'], :],
-                    'labels': training_sets['train']['labels'][offs:offs + args['batch_size']],
+                    'data': training_sets['train']['data'][offs:offs + arg('batch_size'), :],
+                    'labels': training_sets['train']['labels'][offs:offs + arg('batch_size')],
                 }
 
                 summary, _, loss_val, predictions = session.run(
@@ -287,7 +276,7 @@ def main_relunet(summarize=True, **kwargs):
                     },
                 )
 
-                if step % args['step_print'] == 0:
+                if step % arg('step_print') == 0:
                     _batch_accuracy = accuracy(predictions, batch['labels'])
                     batch_accuracy.assign(_batch_accuracy).op.run()
 
@@ -300,7 +289,7 @@ def main_relunet(summarize=True, **kwargs):
                         _batch_accuracy,
                     ))
 
-                if step % args['step_eval'] == 0:
+                if step % arg('step_eval') == 0:
                     # evaluate predictions and see their accuracy
                     _valid_accuracy = accuracy(valid_prediction.eval(), training_sets['valid']['labels'])
                     valid_accuracy.assign(_valid_accuracy).op.run()
@@ -308,7 +297,6 @@ def main_relunet(summarize=True, **kwargs):
                     print("Accuracy on validation data: %.2f%%" % (
                         _valid_accuracy
                     ))
-                    # if last_valid
 
                 if summarize:
                     writer.add_summary(summary, step)
@@ -323,4 +311,5 @@ def main_relunet(summarize=True, **kwargs):
 
 
 if __name__ == "__main__":
-    main_relunet(summarize=True, **parameters['main'])
+    args = docopt(__doc__)
+    main_relunet(summarize=True, **parameters[args['--config']])
